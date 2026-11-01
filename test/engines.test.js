@@ -2,9 +2,8 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   RateLimitError,
-  bingLanguage,
+  microsoftLanguage,
   packTexts,
-  parseBingPage,
   resetEngineState,
   splitText,
   translate,
@@ -292,8 +291,8 @@ test('google: once it gave up, the breaker blocks new requests without sending a
 test('google: the breaker is per service; Microsoft keeps working while Google is blocked', async () => {
   const c = clock();
   await call(['x'], googleSettings, { fetchImpl: stubFetch(() => failing(429), c), clock: c }).catch(() => {});
-  const bing = bingFetch((e) => bingReply(e.form.get('text')), c);
-  assert.deepEqual(await call(['hello'], bingSettings, { fetchImpl: bing, clock: c }), ['hello']);
+  const ms = msFetch((items) => items, c);
+  assert.deepEqual(await call(['hello'], msSettings, { fetchImpl: ms, clock: c }), ['hello']);
 });
 
 test('google: does not retry client errors', async () => {
@@ -315,130 +314,139 @@ test('google: reports unexpected payloads and network errors', async () => {
   await assert.rejects(call(['x'], googleSettings, { fetchImpl: down }), /Network error: Failed to fetch/);
 });
 
-// ---- microsoft (Bing) ---------------------------------------------------------------------
+// ---- microsoft (Edge translate endpoint) -------------------------------------------------
 
-const BING_PAGE_HTML = `<html><script>var _G={IG:"ABC123DEF456"};
-var params_AbusePreventionHelper = [1793542621616,"tok-en_1",3600000];</script></html>`;
-const bingSettings = { engine: 'microsoft', targetLang: 'ko' };
-const bingReply = (text) => json([{ translations: [{ text, to: 'ko' }], detectedLanguage: { language: 'en' } }]);
-
-/** Routes the page request and the translate request; `onTranslate` decides the translate reply. */
-function bingFetch(onTranslate, c, page = BING_PAGE_HTML) {
-  return stubFetch((e) => (e.url.startsWith('https://www.bing.com/translator') ? html(page) : onTranslate(e)), c);
+const msSettings = { engine: 'microsoft', targetLang: 'ko' };
+const msEntry = (text) => ({ translations: [{ text, to: 'ko' }], detectedLanguage: { language: 'en' } });
+/** `fn(items) -> array of translated strings`; the reply has the service's shape. */
+function msFetch(fn, c) {
+  return stubFetch((e) => json(fn(JSON.parse(e.init.body)).map(msEntry)), c);
 }
-const bingPosts = (f) => f.calls.filter((e) => e.url.startsWith('https://www.bing.com/ttranslatev3'));
-const bingPages = (f) => f.calls.filter((e) => e.url.startsWith('https://www.bing.com/translator'));
+const upper = (items) => items.map((t) => t.toUpperCase());
 
-test('parseBingPage extracts IG and the abuse-prevention token', () => {
-  assert.deepEqual(parseBingPage(BING_PAGE_HTML), { ig: 'ABC123DEF456', key: '1793542621616', token: 'tok-en_1' });
-  assert.equal(parseBingPage('<html>layout changed</html>'), null);
+test('microsoftLanguage maps the codes the service uses', () => {
+  assert.equal(microsoftLanguage('zh-CN'), 'zh-Hans');
+  assert.equal(microsoftLanguage('zh-TW'), 'zh-Hant');
+  assert.equal(microsoftLanguage('pt-BR'), 'pt'); // plain `pt` is Brazilian there
+  assert.equal(microsoftLanguage('pt'), 'pt-PT'); // so generic Portuguese goes to European
+  assert.equal(microsoftLanguage('ko'), 'ko');
 });
 
-test('bingLanguage maps the codes the web UI uses', () => {
-  assert.equal(bingLanguage('zh-CN'), 'zh-Hans');
-  assert.equal(bingLanguage('zh-TW'), 'zh-Hant');
-  assert.equal(bingLanguage('pt-BR'), 'pt');
-  assert.equal(bingLanguage('pt'), 'pt-pt');
-  assert.equal(bingLanguage('ko'), 'ko');
+test('microsoft: ONE post carries all texts as a JSON array; no session, no token, no cookies', async () => {
+  const fetchImpl = msFetch(upper);
+  const out = await call(['one', 'two', 'three'], { engine: 'microsoft', targetLang: 'zh-CN' }, { fetchImpl });
+
+  assert.deepEqual(out, ['ONE', 'TWO', 'THREE']);
+  assert.equal(fetchImpl.calls.length, 1); // nothing else is fetched first
+  const [req] = fetchImpl.calls;
+  const url = new URL(req.url);
+  assert.equal(`${url.origin}${url.pathname}`, 'https://edge.microsoft.com/translate/translatetext');
+  assert.equal(url.searchParams.get('to'), 'zh-Hans');
+  assert.equal(url.searchParams.get('isEnterpriseClient'), 'false');
+  assert.equal(req.init.method, 'POST');
+  assert.equal(req.init.credentials, 'omit');
+  assert.equal(req.init.headers['content-type'], 'application/json');
+  assert.deepEqual(JSON.parse(req.init.body), ['one', 'two', 'three']);
+  assert.equal(req.init.headers.authorization ?? req.init.headers.Authorization, undefined);
 });
 
-test('microsoft: one session load, then ONE post carrying all texts with token, key and mapped language', async () => {
-  const fetchImpl = bingFetch((e) => bingReply(e.form.get('text').split('\n').map((l) => `<${l}>`).join('\n')));
-  const out = await call(['one', 'two'], { engine: 'microsoft', targetLang: 'zh-CN' }, { fetchImpl });
-
-  assert.deepEqual(out, ['<one>', '<two>']);
-  assert.equal(bingPages(fetchImpl).length, 1);
-  const [post, ...rest] = bingPosts(fetchImpl);
-  assert.equal(rest.length, 0);
-  assert.match(post.url, /IG=ABC123DEF456/);
-  assert.equal(post.init.credentials, 'omit');
-  assert.equal(post.form.get('text'), 'one\ntwo');
-  assert.equal(post.form.get('token'), 'tok-en_1');
-  assert.equal(post.form.get('key'), '1793542621616');
-  assert.equal(post.form.get('to'), 'zh-Hans');
-  assert.equal(post.form.get('fromLang'), 'auto-detect');
+test('microsoft: the text goes in the body, never in the URL', async () => {
+  const fetchImpl = msFetch(upper);
+  await call(['secret paragraph'], msSettings, { fetchImpl });
+  assert.equal(fetchImpl.calls[0].url.includes('secret'), false);
 });
 
-test('microsoft: the session is cached across calls', async () => {
-  const fetchImpl = bingFetch((e) => bingReply(e.form.get('text')));
-  await call(['a'], bingSettings, { fetchImpl });
-  await call(['b'], bingSettings, { fetchImpl });
-  assert.equal(bingPages(fetchImpl).length, 1);
+test('microsoft: texts keep their own newlines and need no joining trick', async () => {
+  const fetchImpl = msFetch((items) => items.map((t) => `<${t}>`));
+  const out = await call(['line one\nline two', 'second'], msSettings, { fetchImpl });
+  assert.deepEqual(out, ['<line one\nline two>', '<second>']);
 });
 
-test('microsoft: concurrent first requests share one session load', async () => {
-  const fetchImpl = bingFetch((e) => bingReply(e.form.get('text')));
-  await Promise.all(['a', 'b', 'c'].map((t) => call([t], bingSettings, { fetchImpl })));
-  assert.equal(bingPages(fetchImpl).length, 1);
-});
-
-test('microsoft: the 900-character cap groups texts (300 + 300 per request, never 902)', async () => {
-  const texts = ['a', 'b', 'c', 'd', 'e'].map((ch) => ch.repeat(300));
-  const fetchImpl = bingFetch((e) => bingReply(e.form.get('text').split('\n').map((l) => l.toUpperCase()).join('\n')));
-  const out = await call(texts, bingSettings, { fetchImpl });
-  const posts = bingPosts(fetchImpl);
-  assert.deepEqual(posts.map((p) => p.form.get('text').length), [601, 601, 300]);
-  assert.deepEqual(out, texts.map((t) => t.toUpperCase()));
-});
-
-test('microsoft: a text over 900 chars is split (the endpoint rejects more than 1000)', async () => {
-  const text = 'The quick brown fox jumps over the lazy dog near the river. '.repeat(40).trim(); // ~2400 chars
-  const fetchImpl = bingFetch((e) => bingReply(e.form.get('text')));
-  const [out] = await call([text], bingSettings, { fetchImpl });
-  const posts = bingPosts(fetchImpl);
-  assert.ok(posts.length >= 3);
-  for (const p of posts) assert.ok(p.form.get('text').length <= 900);
-  assert.equal(out, text);
-});
-
-test('microsoft: a reply with the wrong number of lines falls back to one text per request', async () => {
-  const fetchImpl = bingFetch((e) => bingReply(e.form.get('text').includes('\n') ? 'merged into one line' : `<${e.form.get('text')}>`));
-  const out = await call(['a', 'b'], bingSettings, { fetchImpl });
-  assert.deepEqual(out, ['<a>', '<b>']);
-  assert.equal(bingPosts(fetchImpl).length, 3);
-});
-
-test('microsoft: an expired token (statusCode 205) triggers one session refresh and a retry', async () => {
-  let pageLoads = 0;
-  const fetchImpl = stubFetch((e) => {
-    if (e.url.startsWith('https://www.bing.com/translator')) {
-      pageLoads++;
-      return html(BING_PAGE_HTML.replace('tok-en_1', `tok-en_${pageLoads}`));
-    }
-    return e.form.get('token') === 'tok-en_2' ? bingReply('fresh') : json({ statusCode: 205, errorMessage: '' });
-  });
-  const out = await call(['x'], bingSettings, { fetchImpl });
-  assert.deepEqual(out, ['fresh']);
-  assert.equal(pageLoads, 2);
-});
-
-test('microsoft: surfaces error codes and captcha, and gives up after one refresh', async () => {
-  const bad = bingFetch(() => json({ statusCode: 400, errorMessage: '' }));
-  await assert.rejects(call(['x'], bingSettings, { fetchImpl: bad }), /rejected the request \(code 400\)/);
+test('microsoft: texts are packed by item count and by characters', async () => {
+  const many = Array.from({ length: 120 }, (_, i) => `t${i}`);
+  const f1 = msFetch(upper);
+  const out = await call(many, msSettings, { fetchImpl: f1 });
+  assert.deepEqual(f1.calls.map((e) => JSON.parse(e.init.body).length), [50, 50, 20]);
+  assert.deepEqual(out, many.map((t) => t.toUpperCase()));
 
   resetEngineState();
-  const expired = bingFetch(() => json({ statusCode: 205, errorMessage: '' }));
-  await assert.rejects(call(['x'], bingSettings, { fetchImpl: expired }), /rejected the request \(code 205\)/);
-  assert.equal(bingPages(expired).length, 2); // initial + one refresh
-
-  resetEngineState();
-  const captcha = bingFetch(() => json({ ShowCaptcha: true }));
-  await assert.rejects(call(['x'], bingSettings, { fetchImpl: captcha }), /captcha required/);
+  const big = ['a', 'b', 'c'].map((ch) => ch.repeat(4000)); // 4000+1+4000 fits 10,000; a third does not
+  const f2 = msFetch(upper);
+  const out2 = await call(big, msSettings, { fetchImpl: f2 });
+  assert.deepEqual(f2.calls.map((e) => JSON.parse(e.init.body).length), [2, 1]);
+  assert.deepEqual(out2, big.map((t) => t.toUpperCase()));
 });
 
-test('microsoft: explains when the page layout changed', async () => {
-  const fetchImpl = bingFetch(() => bingReply('unused'), undefined, '<html>something else</html>');
-  await assert.rejects(call(['x'], bingSettings, { fetchImpl }), /Could not start a Microsoft Translator session/);
+test('microsoft: a text over 5000 chars is split into items, translated together and stitched back', async () => {
+  const text = 'The quick brown fox jumps over the lazy dog near the river. '.repeat(250).trim(); // ~15,000 chars
+  const fetchImpl = msFetch((items) => items.map((t) => `[${t}]`));
+  const [out] = await call([text, 'tail'].slice(0, 1), msSettings, { fetchImpl });
+  const items = fetchImpl.calls.flatMap((e) => JSON.parse(e.init.body));
+  assert.ok(items.length >= 3);
+  for (const item of items) assert.ok(item.length <= 5000);
+  assert.equal(out.replace(/[\[\]]/g, ''), text); // nothing lost or duplicated, separators preserved
 });
 
-test('microsoft: a 429 gives a RateLimitError that names Microsoft, and the breaker applies to it too', async () => {
+test('microsoft: a long text and its neighbours stay in the right slots', async () => {
+  const long = 'Word '.repeat(2000).trim(); // 9999 chars -> two pieces
+  const fetchImpl = msFetch(upper);
+  const out = await call(['first', long, 'last'], msSettings, { fetchImpl });
+  assert.equal(out[0], 'FIRST');
+  assert.equal(out[1], long.toUpperCase());
+  assert.equal(out[2], 'LAST');
+});
+
+test('microsoft: a reply with the wrong number of results is an error, never a silent shift', async () => {
+  const short = stubFetch(() => json([msEntry('only one')]));
+  await assert.rejects(call(['a', 'b'], msSettings, { fetchImpl: short }), /returned 1 results for 2 texts/);
+
+  const notArray = stubFetch(() => json({ error: 'nope' }));
+  await assert.rejects(call(['a'], msSettings, { fetchImpl: notArray }), /returned 0 results for 1 texts/);
+
+  const noText = stubFetch(() => json([{ translations: [] }]));
+  await assert.rejects(call(['a'], msSettings, { fetchImpl: noText }), /Unexpected response format from Microsoft/);
+});
+
+test('microsoft: reports an unreadable reply and a rejected request', async () => {
+  const bad = stubFetch(() => ({ ok: true, status: 200, json: async () => { throw new Error('bad'); } }));
+  await assert.rejects(call(['a'], msSettings, { fetchImpl: bad }), /invalid response/);
+  const forbidden = stubFetch(() => failing(403));
+  await assert.rejects(call(['a'], msSettings, { fetchImpl: forbidden }), /HTTP 403/);
+  assert.equal(forbidden.calls.length, 1); // client errors are not retried
+});
+
+test('microsoft: a 5xx is retried', async () => {
+  const replies = [failing(503), json([msEntry('ok')])];
+  const fetchImpl = stubFetch(() => replies.shift());
+  assert.deepEqual(await call(['a'], msSettings, { fetchImpl }), ['ok']);
+  assert.equal(fetchImpl.calls.length, 2);
+});
+
+test('microsoft: requests are spaced out and a 429 makes everybody wait', async () => {
   const c = clock();
-  const fetchImpl = stubFetch((e) => (e.url.startsWith('https://www.bing.com/translator') ? html(BING_PAGE_HTML) : failing(429)), c);
-  const err = await call(['x'], bingSettings, { fetchImpl, clock: c }).catch((e) => e);
+  const spaced = msFetch(upper, c);
+  await call(['a'.repeat(5000), 'b'.repeat(5000), 'c'.repeat(5000)], msSettings, { fetchImpl: spaced, clock: c }); // 5000+1+5000 > 10,000: three requests
+  const times = spaced.calls.map((e) => e.at);
+  assert.equal(times.length, 3);
+  for (let i = 1; i < times.length; i++) assert.ok(times[i] - times[i - 1] >= 250);
+
+  resetEngineState();
+  const c2 = clock();
+  const replies = [failing(429), json([msEntry('ok')])];
+  const limited = stubFetch(() => replies.shift(), c2);
+  assert.deepEqual(await call(['x'], msSettings, { fetchImpl: limited, clock: c2 }), ['ok']);
+  assert.ok(limited.calls[1].at - limited.calls[0].at >= 2000);
+});
+
+test('microsoft: a 429 that does not go away gives a RateLimitError naming Microsoft, then the breaker holds', async () => {
+  const c = clock();
+  const fetchImpl = stubFetch(() => failing(429), c);
+  const err = await call(['x'], msSettings, { fetchImpl, clock: c }).catch((e) => e);
   assert.ok(err instanceof RateLimitError);
   assert.equal(err.service, 'Microsoft Translator');
+  assert.equal(err.retryInSeconds, 60);
   const sent = fetchImpl.calls.length;
-  await assert.rejects(call(['y'], bingSettings, { fetchImpl, clock: c }), RateLimitError);
+  await assert.rejects(call(['y'], msSettings, { fetchImpl, clock: c }), RateLimitError);
   assert.equal(fetchImpl.calls.length, sent);
 });
 

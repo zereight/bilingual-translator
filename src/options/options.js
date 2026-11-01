@@ -21,7 +21,8 @@ function syncEngine() {
   });
   $('baseUrl').required = openai; // a hidden required field would silently block saving
   $('model').required = openai;
-  $('engineHint').textContent = t(openai ? 'engineHintOpenai' : 'engineHintFree');
+  const engine = $('engine').value;
+  $('engineHint').textContent = t(`engineHint${engine[0].toUpperCase()}${engine.slice(1)}`);
 }
 
 function fill(settings) {

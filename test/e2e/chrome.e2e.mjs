@@ -256,7 +256,7 @@ try {
     await opts.close();
   });
 
-  await step('options page: engine defaults to google; OpenAI-only fields show/hide and the key survives switching', async () => {
+  await step('options page: engine defaults to microsoft; OpenAI-only fields show/hide and the key survives switching', async () => {
     await worker.evaluate(() => chrome.storage.local.remove('settings')); // fresh profile
     const opts = await browser.newPage();
     await opts.goto(`chrome-extension://${extensionId}/options/options.html`);
@@ -264,7 +264,7 @@ try {
     const hidden = () => opts.evaluate(() => [document.getElementById('openaiFields').hidden, document.getElementById('extraPromptField').hidden]);
     const visible = (id) => opts.$eval(id, (el) => el.offsetParent !== null);
 
-    assert.equal(await opts.$eval('#engine', (s) => s.value), 'google');
+    assert.equal(await opts.$eval('#engine', (s) => s.value), 'microsoft');
     assert.deepEqual(await hidden(), [true, true]);
     assert.equal(await visible('#baseUrl'), false);
     assert.ok((await opts.$eval('#engineHint', (e) => e.textContent)).length > 20);
@@ -274,13 +274,13 @@ try {
     assert.deepEqual(await hidden(), [false, false]);
     assert.equal(await visible('#baseUrl'), true);
     await opts.$eval('#apiKey', (e) => { e.value = 'sk-keep-me'; });
-    await opts.select('#engine', 'microsoft');
+    await opts.select('#engine', 'google'); // a non-default engine, to prove the choice is saved
     assert.deepEqual(await hidden(), [true, true]);
     await opts.$eval('#baseUrl', (e) => { e.value = ''; }); // invalid + hidden: must not block saving
     await opts.click('button[type=submit]');
     await opts.waitForFunction(() => document.getElementById('status').classList.contains('ok'));
     const saved = await worker.evaluate(async () => (await chrome.storage.local.get('settings')).settings);
-    assert.equal(saved.engine, 'microsoft');
+    assert.equal(saved.engine, 'google');
     assert.equal(saved.apiKey, 'sk-keep-me');
     await opts.close();
   });
