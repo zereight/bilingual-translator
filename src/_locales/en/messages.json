@@ -1,6 +1,6 @@
 {
   "extName": { "message": "Bilingual Translator" },
-  "extDescription": { "message": "Translate web pages and show the translation below the original text, using Google or Microsoft Translate (no key needed) or your own OpenAI-compatible API." },
+  "extDescription": { "message": "Translate web pages and show the translation below the original text, using Microsoft or Google Translate (no key needed) or your own OpenAI-compatible API." },
   "cmdToggle": { "message": "Translate this page / show original only" },
 
   "popupTranslate": { "message": "Translate this page" },
@@ -13,15 +13,16 @@
   "errFailed": { "message": "⚠ Translation failed. Click to retry." },
   "errRetryHint": { "message": "Click to retry" },
   "errNoApiKey": { "message": "API key is not set. Open the extension settings." },
-  "errRateLimited": { "message": "$SERVICE$ is limiting requests from this connection (HTTP 429). Click a failed paragraph to retry in about $SECONDS$ s, or switch the translation engine in the settings.", "placeholders": { "service": { "content": "$1" }, "seconds": { "content": "$2" } } },
+  "errRateLimited": { "message": "$SERVICE$ is limiting requests from this connection (HTTP 429). The extension pauses for $SECONDS$ s, but the service may keep blocking you for longer. Switch the translation engine in the settings, or try another network.", "placeholders": { "service": { "content": "$1" }, "seconds": { "content": "$2" } } },
 
   "optTitle": { "message": "Bilingual Translator – Settings" },
   "optSectionEngine": { "message": "Translation engine" },
   "optEngine": { "message": "Engine" },
   "engineGoogle": { "message": "Google Translate (no key needed)" },
-  "engineMicrosoft": { "message": "Microsoft Translator (no key needed)" },
+  "engineMicrosoft": { "message": "Microsoft Translator (no key needed, default)" },
   "engineOpenai": { "message": "OpenAI-compatible API (your own)" },
-  "engineHintFree": { "message": "Works without an API key. It uses the free web endpoints of each service, which are unofficial: heavy use may be blocked for a while and they can stop working without notice. The text you translate is sent to that service (Google / Microsoft)." },
+  "engineHintMicrosoft": { "message": "Works without an API key. It uses an unofficial endpoint behind the Edge browser translation feature, so heavy use may be limited for a while and it can stop working without notice. The text you translate is sent to Microsoft." },
+  "engineHintGoogle": { "message": "Works without an API key. It uses the unofficial endpoint of the Google Translate website, which blocks a connection (HTTP 429) quite readily when requests pile up. If it does, switch to Microsoft. The text you translate is sent to Google." },
   "engineHintOpenai": { "message": "Translates with the OpenAI-compatible API you configure. Extra instructions (tone, terminology) are supported, and the text is sent only to the API address below." },
   "optSectionApi": { "message": "OpenAI-compatible API" },
   "optBaseUrl": { "message": "API base URL" },
@@ -51,5 +52,5 @@
   "optTestOk": { "message": "Works! \"Hello, world!\" → " },
   "optTestFail": { "message": "Failed: " },
   "optInvalidUrl": { "message": "The API base URL must start with http:// or https://" },
-  "optPrivacy": { "message": "The text of pages you translate is sent only to the translation engine you chose (Google, Microsoft, or the OpenAI-compatible API endpoint you configured), and nowhere else." }
+  "optPrivacy": { "message": "The text of pages you translate is sent only to the translation engine you chose (Microsoft, Google, or the OpenAI-compatible API endpoint you configured), and nowhere else." }
 }

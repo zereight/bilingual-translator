@@ -1,13 +1,14 @@
 // Translation engines. `translate()` is the single entry point used by the background script.
 //
-//   google     Google Translate's free web endpoint (no key).
-//   microsoft  Microsoft Translator via the Bing Translator web UI (no key).
+//   microsoft  Microsoft Translator through the endpoint behind Edge's built-in page translation
+//              (no key, no session). A JSON array of texts in, an array of the same length out.
+//   google     Google Translate's free web endpoint (no key). Texts are joined by newlines.
 //   openai     Any OpenAI-compatible /chat/completions endpoint (own key / local server).
 //
-// google and microsoft are the *unofficial* endpoints the public web UIs use. They need no account
-// but are undocumented, rate limited and may change or stop working at any time. To stay under
-// their limits several paragraphs travel in one request (joined by newlines, checked on the way
-// back) and every request goes through a per-service gate (see "being polite" below).
+// microsoft and google are *unofficial* endpoints. They need no account but are undocumented,
+// rate limited and may change or stop working at any time. To stay under their limits several
+// paragraphs travel in one request and every request goes through a per-service gate (see
+// "being polite" below).
 //
 // Pure ES module (fetch is injectable) so it can be unit-tested in Node.
 
@@ -16,8 +17,9 @@ import { requestTranslations as translateWithLlm } from './llm.js';
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ---- text splitting -----------------------------------------------------------------------
-// Both web endpoints cap the size of one request (Bing: 1000 chars). Long texts are cut at
-// paragraph / sentence / word boundaries and the pieces are translated one after another.
+// Long texts are cut at paragraph / sentence / word boundaries so no single request carries more than
+// the service is known to accept. Google's pieces are translated one after another; Microsoft's travel
+// as separate items of one request.
 
 const SENTENCE_END = /[.!?。！？…]["')\]”’」』]*\s/g;
 
@@ -121,12 +123,10 @@ function noteRateLimited(gate, res, now) {
   gate.cooldownUntil = t + Math.max(step, hinted);
 }
 
-/** Forget the cached Bing token, the gates and the batching statistics (tests; also a clean slate). */
+/** Forget the gates and the batching statistics (tests; also a clean slate). */
 export function resetEngineState() {
-  bingSession = null;
-  bingSessionLoading = null;
   gates.clear();
-  batchMismatches.clear();
+  googleBatchMismatches = 0;
 }
 
 // ---- HTTP helper --------------------------------------------------------------------------
@@ -207,55 +207,31 @@ async function googlePiece(text, settings, opts) {
   return data[0].map((segment) => (typeof segment?.[0] === 'string' ? segment[0] : '')).join('');
 }
 
-// ---- Microsoft (Bing Translator web UI) ---------------------------------------------------
+// ---- Microsoft (Edge translate endpoint) -------------------------------------------------
+// POST https://edge.microsoft.com/translate/translatetext?to=<lang>&isEnterpriseClient=false
+// body: JSON array of strings -> JSON array of { translations: [{ text, to }], detectedLanguage }.
+// No token or session. Measured 2026-11-02 (see .agents notes): a single text of 10,000 chars, 1,000
+// texts and 40,000 chars in one request all worked, so the caps below leave a wide margin.
 
-const BING_PAGE = 'https://www.bing.com/translator';
-const BING_API = 'https://www.bing.com/ttranslatev3';
-const BING_MAX_CHARS = 900; // the endpoint rejects more than 1000
-const BING_SESSION_MAX_AGE_MS = 50 * 60 * 1000; // tokens last 1 h; renew early
+const MS_URL = 'https://edge.microsoft.com/translate/translatetext';
+const MS_MAX_TEXT_CHARS = 5000; // longer texts are split and the pieces translated as separate items
+const MS_MAX_REQUEST_CHARS = 10000;
+const MS_MAX_ITEMS = 50;
 
-// The web UI uses its own codes for Chinese and Portuguese.
-const BING_LANG = { 'zh-CN': 'zh-Hans', 'zh-TW': 'zh-Hant', pt: 'pt-pt', 'pt-BR': 'pt' };
-export const bingLanguage = (code) => BING_LANG[code] ?? code;
+// The service uses its own codes for Chinese and Portuguese. Plain `pt` means Brazilian there, so
+// our generic `pt` goes to European Portuguese to keep `pt` and `pt-BR` different.
+const MS_LANG = { 'zh-CN': 'zh-Hans', 'zh-TW': 'zh-Hant', pt: 'pt-PT', 'pt-BR': 'pt' };
+export const microsoftLanguage = (code) => MS_LANG[code] ?? code;
 
-let bingSession = null; // { ig, key, token, expires }
-let bingSessionLoading = null;
-
-/** Pull the request signature (IG) and the abuse-prevention token out of the translator page. */
-export function parseBingPage(html) {
-  const ig = html.match(/IG:"([A-Z0-9]+)"/)?.[1];
-  const helper = html.match(/params_AbusePreventionHelper\s*=\s*\[\s*(\d+)\s*,\s*"([^"]+)"/);
-  if (!ig || !helper) return null;
-  return { ig, key: helper[1], token: helper[2] };
-}
-
-async function loadBingSession(opts, force) {
-  if (!force && bingSession && bingSession.expires > Date.now()) return bingSession;
-  if (!bingSessionLoading) {
-    bingSessionLoading = (async () => {
-      const res = await request(BING_PAGE, { method: 'GET' }, { ...opts, gate: 'microsoft' });
-      const parsed = parseBingPage(await res.text());
-      if (!parsed) throw new Error('Could not start a Microsoft Translator session (the page layout may have changed)');
-      bingSession = { ...parsed, expires: Date.now() + BING_SESSION_MAX_AGE_MS };
-      return bingSession;
-    })().finally(() => {
-      bingSessionLoading = null;
-    });
-  }
-  return bingSessionLoading;
-}
-
-async function bingRequest(text, settings, opts, session) {
-  const body = new URLSearchParams({
-    fromLang: 'auto-detect',
-    text,
-    to: bingLanguage(settings.targetLang),
-    token: session.token,
-    key: session.key,
-  });
+async function microsoftRequest(items, settings, opts) {
+  const url = `${MS_URL}?to=${encodeURIComponent(microsoftLanguage(settings.targetLang))}&isEnterpriseClient=false`;
   const res = await request(
-    `${BING_API}?isVertical=1&IG=${session.ig}&IID=translator.5028.1`,
-    { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() },
+    url,
+    {
+      method: 'POST',
+      headers: { accept: '*/*', 'content-type': 'application/json' },
+      body: JSON.stringify(items),
+    },
     { ...opts, gate: 'microsoft' },
   );
   let data;
@@ -264,40 +240,49 @@ async function bingRequest(text, settings, opts, session) {
   } catch {
     throw new Error('Microsoft Translator returned an invalid response');
   }
-  return data;
-}
-
-async function bingPiece(text, settings, opts) {
-  const session = await loadBingSession(opts, false);
-  let data = await bingRequest(text, settings, opts, session);
-  let translated = data?.[0]?.translations?.[0]?.text;
-
-  // Errors come back as HTTP 200 with {"statusCode": ...}; 205 means the token is no longer valid.
-  // Renew the session (unless a concurrent request already did) and try once more.
-  if (typeof translated !== 'string' && data?.statusCode === 205) {
-    const fresh = bingSession && bingSession !== session ? bingSession : await loadBingSession(opts, true);
-    data = await bingRequest(text, settings, opts, fresh);
-    translated = data?.[0]?.translations?.[0]?.text;
+  if (!Array.isArray(data) || data.length !== items.length) {
+    const got = Array.isArray(data) ? data.length : 0;
+    throw new Error(`Microsoft Translator returned ${got} results for ${items.length} texts`);
   }
-  if (typeof translated === 'string') return translated;
-
-  const code = data?.statusCode
-    ? ` (code ${data.statusCode})`
-    : data?.ShowCaptcha
-      ? ' (captcha required: try again later)'
-      : '';
-  throw new Error(`Microsoft Translator rejected the request${code}`);
+  if (!data.every((entry) => typeof entry?.translations?.[0]?.text === 'string')) {
+    throw new Error('Unexpected response format from Microsoft Translator');
+  }
+  return data.map((entry) => entry.translations[0].text);
 }
 
-// ---- batching -----------------------------------------------------------------------------
-// Several paragraphs are sent in one request, joined by "\n" (paragraphs are whitespace-normalised
-// upstream, so they contain no newlines of their own). The reply is split on "\n" again and only
-// trusted when it has exactly as many non-empty lines; otherwise each paragraph is sent on its own.
-// If that keeps happening the engine stops batching until the worker restarts.
+async function translateMicrosoft(texts, settings, opts) {
+  // Every text becomes one or more array items; only an oversize text is cut (at sentence breaks).
+  const items = [];
+  const plan = texts.map((text) => {
+    const pieces = splitText(text, MS_MAX_TEXT_CHARS);
+    const start = items.length;
+    for (const piece of pieces) items.push(piece.text);
+    return { pieces, start };
+  });
+
+  const out = new Array(items.length);
+  for (const { indexes } of packTexts(items, MS_MAX_REQUEST_CHARS, MS_MAX_ITEMS)) {
+    const translated = await microsoftRequest(indexes.map((i) => items[i]), settings, opts);
+    indexes.forEach((i, j) => {
+      out[i] = translated[j];
+    });
+  }
+
+  return plan.map(({ pieces, start }) =>
+    pieces.map((piece, k) => out[start + k] + (k < pieces.length - 1 ? piece.sep : '')).join(''),
+  );
+}
+
+// ---- batching (Google) --------------------------------------------------------------------
+// Google takes one text per `q`, but a multi-`q` request is the one it blocks first, so several
+// paragraphs are joined by "\n" (paragraphs are whitespace-normalised upstream, so they contain no
+// newlines of their own) and the reply is split on "\n" again. It is only trusted when it has exactly
+// as many non-empty lines; otherwise each paragraph is sent on its own. If that keeps happening the
+// engine stops batching until the worker restarts.
 
 const BATCH_MAX_ITEMS = 20;
 const MAX_BATCH_MISMATCHES = 3;
-const batchMismatches = new Map(); // engine -> consecutive batches whose line count did not match
+let googleBatchMismatches = 0; // consecutive batches whose line count did not match
 
 /**
  * Group texts, in order, into requests of at most `maxChars` characters (joining newlines included)
@@ -321,28 +306,22 @@ export function packTexts(texts, maxChars, maxItems = BATCH_MAX_ITEMS) {
   return groups;
 }
 
-const FREE_ENGINES = {
-  google: { piece: googlePiece, maxChars: GOOGLE_MAX_CHARS },
-  microsoft: { piece: bingPiece, maxChars: BING_MAX_CHARS },
-};
-
-async function translateFree(engine, texts, settings, opts) {
-  const { piece, maxChars } = FREE_ENGINES[engine];
-  const alone = (text) => translateLong(text, maxChars, (p) => piece(p, settings, opts));
+async function translateGoogle(texts, settings, opts) {
+  const alone = (text) => translateLong(text, GOOGLE_MAX_CHARS, (p) => googlePiece(p, settings, opts));
   const results = new Array(texts.length);
 
-  for (const { indexes } of packTexts(texts, maxChars)) {
-    if (indexes.length > 1 && (batchMismatches.get(engine) ?? 0) < MAX_BATCH_MISMATCHES) {
+  for (const { indexes } of packTexts(texts, GOOGLE_MAX_CHARS)) {
+    if (indexes.length > 1 && googleBatchMismatches < MAX_BATCH_MISMATCHES) {
       const lines = indexes.map((i) => texts[i].replace(/\s*\n\s*/g, ' '));
-      const parts = (await piece(lines.join('\n'), settings, opts)).split('\n');
+      const parts = (await googlePiece(lines.join('\n'), settings, opts)).split('\n');
       if (parts.length === indexes.length && parts.every((part) => part.trim())) {
-        batchMismatches.set(engine, 0);
+        googleBatchMismatches = 0;
         indexes.forEach((i, j) => {
           results[i] = parts[j];
         });
         continue;
       }
-      batchMismatches.set(engine, (batchMismatches.get(engine) ?? 0) + 1);
+      googleBatchMismatches += 1;
     }
     for (const i of indexes) results[i] = await alone(texts[i]);
   }
@@ -356,6 +335,12 @@ async function translateFree(engine, texts, settings, opts) {
  * `settings.engine` selects the backend.
  */
 export async function translate(texts, settings, opts = {}) {
-  if (FREE_ENGINES[settings.engine]) return translateFree(settings.engine, texts, settings, opts);
-  return translateWithLlm(texts, settings, opts);
+  switch (settings.engine) {
+    case 'microsoft':
+      return translateMicrosoft(texts, settings, opts);
+    case 'google':
+      return translateGoogle(texts, settings, opts);
+    default:
+      return translateWithLlm(texts, settings, opts);
+  }
 }

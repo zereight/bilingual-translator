@@ -10,11 +10,14 @@ export const LANGUAGES = [
 
 export const STYLES = ['subtle', 'plain', 'highlight', 'underline'];
 
-/** google / microsoft: free web endpoints, no key. openai: any OpenAI-compatible API (own key or local). */
-export const ENGINES = ['google', 'microsoft', 'openai'];
+/**
+ * microsoft / google: free web endpoints, no key. openai: any OpenAI-compatible API (own key or local).
+ * microsoft is the default: Google blocks a connection (HTTP 429, captcha) far more readily.
+ */
+export const ENGINES = ['microsoft', 'google', 'openai'];
 
 export const DEFAULTS = Object.freeze({
-  engine: 'google',
+  engine: 'microsoft',
   baseUrl: 'https://api.openai.com/v1',
   apiKey: '',
   model: 'gpt-4o-mini',

@@ -75,14 +75,14 @@ test('publicSettings never exposes the API key', () => {
   assert.equal(pub.configured, true);
 });
 
-test('engine defaults to google (works without any setup) and rejects unknown values', () => {
-  assert.equal(DEFAULTS.engine, 'google');
-  assert.deepEqual(ENGINES, ['google', 'microsoft', 'openai']);
-  assert.equal(sanitize({}).engine, 'google');
-  assert.equal(sanitize({ engine: 'microsoft' }).engine, 'microsoft');
+test('engine defaults to microsoft (works without any setup) and rejects unknown values', () => {
+  assert.equal(DEFAULTS.engine, 'microsoft');
+  assert.deepEqual(ENGINES, ['microsoft', 'google', 'openai']);
+  assert.equal(sanitize({}).engine, 'microsoft');
+  assert.equal(sanitize({ engine: 'google' }).engine, 'google'); // an explicit choice is kept
   assert.equal(sanitize({ engine: 'openai' }).engine, 'openai');
-  assert.equal(sanitize({ engine: 'bing' }).engine, 'google');
-  assert.equal(sanitize({ engine: 42 }).engine, 'google');
+  assert.equal(sanitize({ engine: 'bing' }).engine, 'microsoft');
+  assert.equal(sanitize({ engine: 42 }).engine, 'microsoft');
 });
 
 test('settings saved before engines existed keep using the OpenAI-compatible API', () => {
@@ -90,12 +90,13 @@ test('settings saved before engines existed keep using the OpenAI-compatible API
   assert.equal(sanitize({ baseUrl: 'http://localhost:11434/v1' }).engine, 'openai');
   assert.equal(sanitize({ baseUrl: 'http://localhost:11434/v1', apiKey: '', model: 'qwen2.5:7b' }).engine, 'openai');
   // untouched defaults carry no OpenAI configuration -> the key-less default engine
-  assert.equal(sanitize({ baseUrl: DEFAULTS.baseUrl, apiKey: '', model: DEFAULTS.model }).engine, 'google');
+  assert.equal(sanitize({ baseUrl: DEFAULTS.baseUrl, apiKey: '', model: DEFAULTS.model }).engine, 'microsoft');
 });
 
 test('an explicit engine always wins over leftover OpenAI fields', () => {
   assert.equal(sanitize({ engine: 'google', apiKey: 'sk-1', baseUrl: 'http://localhost:11434/v1' }).engine, 'google');
   assert.equal(sanitize({ engine: 'microsoft', apiKey: 'sk-1' }).engine, 'microsoft');
+  assert.equal(sanitize({ engine: 'google' }).engine, 'google'); // not reset to the new default
 });
 
 test('isConfigured: google and microsoft need no key, whatever the OpenAI fields say', () => {
