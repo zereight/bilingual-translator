@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULTS,
+  ENGINES,
   hostMatches,
   isConfigured,
   normalizeDomain,
@@ -72,4 +73,43 @@ test('publicSettings never exposes the API key', () => {
   assert.equal('apiKey' in pub, false);
   assert.equal(JSON.stringify(pub).includes('sk-secret'), false);
   assert.equal(pub.configured, true);
+});
+
+test('engine defaults to google (works without any setup) and rejects unknown values', () => {
+  assert.equal(DEFAULTS.engine, 'google');
+  assert.deepEqual(ENGINES, ['google', 'microsoft', 'openai']);
+  assert.equal(sanitize({}).engine, 'google');
+  assert.equal(sanitize({ engine: 'microsoft' }).engine, 'microsoft');
+  assert.equal(sanitize({ engine: 'openai' }).engine, 'openai');
+  assert.equal(sanitize({ engine: 'bing' }).engine, 'google');
+  assert.equal(sanitize({ engine: 42 }).engine, 'google');
+});
+
+test('settings saved before engines existed keep using the OpenAI-compatible API', () => {
+  assert.equal(sanitize({ apiKey: 'sk-1' }).engine, 'openai');
+  assert.equal(sanitize({ baseUrl: 'http://localhost:11434/v1' }).engine, 'openai');
+  assert.equal(sanitize({ baseUrl: 'http://localhost:11434/v1', apiKey: '', model: 'qwen2.5:7b' }).engine, 'openai');
+  // untouched defaults carry no OpenAI configuration -> the key-less default engine
+  assert.equal(sanitize({ baseUrl: DEFAULTS.baseUrl, apiKey: '', model: DEFAULTS.model }).engine, 'google');
+});
+
+test('an explicit engine always wins over leftover OpenAI fields', () => {
+  assert.equal(sanitize({ engine: 'google', apiKey: 'sk-1', baseUrl: 'http://localhost:11434/v1' }).engine, 'google');
+  assert.equal(sanitize({ engine: 'microsoft', apiKey: 'sk-1' }).engine, 'microsoft');
+});
+
+test('isConfigured: google and microsoft need no key, whatever the OpenAI fields say', () => {
+  for (const engine of ['google', 'microsoft']) {
+    assert.equal(isConfigured({ engine, baseUrl: 'https://api.openai.com/v1', apiKey: '' }), true);
+  }
+  assert.equal(isConfigured({ engine: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: '' }), false);
+  assert.equal(isConfigured({ engine: 'openai', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk-1' }), true);
+  assert.equal(isConfigured({ engine: 'openai', baseUrl: 'http://localhost:11434/v1', apiKey: '' }), true);
+});
+
+test('publicSettings exposes the engine but still never the key', () => {
+  const pub = publicSettings({ ...DEFAULTS, engine: 'microsoft', apiKey: 'sk-secret' });
+  assert.equal(pub.engine, 'microsoft');
+  assert.equal(pub.configured, true);
+  assert.equal(JSON.stringify(pub).includes('sk-secret'), false);
 });

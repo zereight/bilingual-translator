@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Bilingual Translator">
+  <title>Bilingual Translator</title>
+  <defs>
+    <!-- userSpaceOnUse so the tile and the "gap" stroke below sample the exact same colours -->
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="12" y1="12" x2="500" y2="500">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- app tile -->
+  <rect x="12" y="12" width="488" height="488" rx="112" fill="url(#bg)"/>
+
+  <!-- original: white bubble with "A" -->
+  <g fill="#ffffff" stroke="#ffffff" stroke-width="12" stroke-linejoin="round">
+    <rect x="70" y="78" width="232" height="184" rx="44" stroke="none"/>
+    <path d="M120 250 L100 312 L172 250 Z"/>
+  </g>
+  <path d="M120 214 L156 120 L192 214 M134 188 H178"
+        fill="none" stroke="#4338ca" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- translation: deep bubble with "가"; a gap in the tile gradient separates it from the first bubble -->
+  <rect x="210" y="196" width="232" height="184" rx="44" fill="#1e1b4b"
+        stroke="url(#bg)" stroke-width="16" paint-order="stroke"/>
+  <path d="M392 368 L412 430 L340 368 Z" fill="#1e1b4b" stroke="#1e1b4b" stroke-width="12" stroke-linejoin="round"/>
+  <g fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M262 246 H316 V330"/>
+    <path d="M358 240 V336 M358 288 H390"/>
+  </g>
+</svg>

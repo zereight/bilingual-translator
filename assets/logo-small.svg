@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Bilingual Translator">
+  <title>Bilingual Translator (small sizes)</title>
+  <!-- Simplified variant of logo.svg for 16-32px: bigger bubbles, heavier strokes, less padding. -->
+  <defs>
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="8" y1="8" x2="504" y2="504">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="8" y="8" width="496" height="496" rx="108" fill="url(#bg)"/>
+
+  <g fill="#ffffff" stroke="#ffffff" stroke-width="12" stroke-linejoin="round">
+    <rect x="40" y="48" width="276" height="216" rx="54" stroke="none"/>
+    <path d="M100 250 L80 332 L172 250 Z"/>
+  </g>
+  <path d="M80 212 L120 98 L160 212 M95 176 H145"
+        fill="none" stroke="#4338ca" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <rect x="192" y="188" width="280" height="240" rx="54" fill="#1e1b4b"
+        stroke="url(#bg)" stroke-width="20" paint-order="stroke"/>
+  <path d="M404 410 L428 480 L336 410 Z" fill="#1e1b4b" stroke="#1e1b4b" stroke-width="12" stroke-linejoin="round"/>
+  <g fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M262 250 H322 V364"/>
+    <path d="M372 238 V378 M372 308 H410"/>
+  </g>
+</svg>

@@ -12,6 +12,20 @@
 
       <form id="form" autocomplete="off">
         <fieldset>
+          <legend data-i18n="optSectionEngine"></legend>
+
+          <label>
+            <span data-i18n="optEngine"></span>
+            <select id="engine">
+              <option value="google" data-i18n="engineGoogle"></option>
+              <option value="microsoft" data-i18n="engineMicrosoft"></option>
+              <option value="openai" data-i18n="engineOpenai"></option>
+            </select>
+            <small id="engineHint"></small>
+          </label>
+        </fieldset>
+
+        <fieldset id="openaiFields" data-openai-only>
           <legend data-i18n="optSectionApi"></legend>
 
           <label>
@@ -50,7 +64,7 @@
             </select>
           </label>
 
-          <label>
+          <label id="extraPromptField" data-openai-only>
             <span data-i18n="optExtraPrompt"></span>
             <textarea id="extraPrompt" rows="3" maxlength="2000" data-i18n-placeholder="optExtraPromptPlaceholder"></textarea>
           </label>
@@ -65,11 +79,11 @@
         <fieldset>
           <legend data-i18n="optSectionAdvanced"></legend>
           <div class="row">
-            <label>
+            <label data-openai-only>
               <span data-i18n="optBatchItems"></span>
               <input id="batchMaxItems" type="number" min="1" max="30" />
             </label>
-            <label>
+            <label data-openai-only>
               <span data-i18n="optBatchChars"></span>
               <input id="batchMaxChars" type="number" min="200" max="8000" step="100" />
             </label>

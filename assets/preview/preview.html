@@ -1,0 +1,78 @@
+<!doctype html>
+<!-- Source of assets/preview.png (rendered by `npm run preview`).
+     The article uses the extension's real content.css and <bt-translation> elements in the default
+     "subtle" style; the sample text is made up for illustration. -->
+<html lang="en" data-bt-style="subtle">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../src/content/content.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+
+  #stage {
+    width: 984px; padding: 36px 32px 40px;
+    background: linear-gradient(135deg, #e0e7ff 0%, #cffafe 100%);
+  }
+  .window {
+    background: #fff; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 24px 60px rgba(49, 46, 129, .25), 0 2px 6px rgba(49, 46, 129, .12);
+  }
+  .bar {
+    display: flex; align-items: center; gap: 14px; height: 52px; padding: 0 16px;
+    background: #f1f3f9; border-bottom: 1px solid #e3e6ef;
+  }
+  .dots { display: flex; gap: 8px; }
+  .dots i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+  .dots i:nth-child(2) { background: #febc2e; }
+  .dots i:nth-child(3) { background: #28c840; }
+  .url {
+    flex: 1; height: 30px; border-radius: 15px; background: #fff; border: 1px solid #e3e6ef;
+    padding: 0 14px; font-size: 13px; line-height: 28px; color: #5b6275;
+  }
+  .ext { width: 30px; height: 30px; display: block; }
+
+  .page { padding: 36px 56px 40px; color: #1f2937; }
+  .block { position: relative; width: 600px; }
+  h1 { margin: 0 0 .1em; font-size: 30px; line-height: 1.25; }
+  p { margin: 0; }
+  bt-translation { word-break: keep-all; } /* keep Korean words together, as most Korean sites do */
+  .article p + p, .article bt-translation + p { margin-top: 1em; }
+
+  .tag {
+    position: absolute; left: calc(100% + 20px); white-space: nowrap;
+    font: 600 12px/1 system-ui, -apple-system, sans-serif; letter-spacing: .02em;
+    padding: 7px 10px; border-radius: 999px; color: #fff;
+  }
+  .tag::before { content: ""; position: absolute; right: 100%; top: 50%; width: 14px; height: 1px; background: currentColor; }
+  .tag.orig { background: #4f46e5; color: #4f46e5; }
+  .tag.trans { background: #0891b2; color: #0891b2; }
+  .tag span { color: #fff; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="window">
+    <div class="bar">
+      <div class="dots"><i></i><i></i><i></i></div>
+      <div class="url">example.com/blog/the-quiet-power-of-small-habits</div>
+      <img class="ext" src="../../src/icons/icon-128.png" alt="">
+    </div>
+    <div class="page">
+      <div class="article">
+        <div class="block">
+          <h1>The Quiet Power of Small Habits</h1><bt-translation data-bt-state="done" lang="ko" dir="auto" style="font-size:30px;line-height:1.25;font-weight:700">작은 습관이 가진 조용한 힘</bt-translation>
+          <b class="tag orig" style="top:6px"><span>Original</span></b>
+          <b class="tag trans" style="top:52px"><span>Translation</span></b>
+        </div>
+        <p style="margin-top:1.1em;width:600px">Most people overestimate what they can do in a day and underestimate what they can do in a year. Small, repeatable actions compound in ways that big, one-off efforts rarely do.</p>
+        <bt-translation data-bt-state="done" lang="ko" dir="auto" style="width:600px">대부분의 사람들은 하루 동안 할 수 있는 일을 과대평가하고, 1년 동안 할 수 있는 일을 과소평가합니다. 작고 반복 가능한 행동은 크고 일회성인 노력이 좀처럼 만들지 못하는 방식으로 복리처럼 쌓입니다.</bt-translation>
+        <p style="margin-top:1.1em;width:600px">Start by making the habit so small that it feels almost silly. Two minutes of reading beats an hour you never begin.</p>
+        <bt-translation data-bt-state="done" lang="ko" dir="auto" style="width:600px">습관을 거의 우스울 정도로 작게 만드는 것부터 시작하세요. 시작조차 하지 않는 한 시간보다 2분의 독서가 낫습니다.</bt-translation>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

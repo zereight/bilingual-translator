@@ -108,7 +108,7 @@ try {
       message,
     );
 
-  await setSettings({ baseUrl: `${origin}/v1`, apiKey: 'test-key', model: 'mock-model', targetLang: 'ko', style: 'subtle' });
+  await setSettings({ engine: 'openai', baseUrl: `${origin}/v1`, apiKey: 'test-key', model: 'mock-model', targetLang: 'ko', style: 'subtle' });
 
   const page = await browser.newPage();
   await page.goto(`${origin}/page.html`, { waitUntil: 'load' });
@@ -198,7 +198,7 @@ try {
   await step('API errors show a toast and clickable error placeholders (no request storm)', async () => {
     // The background script caches translations per (model, language, text): use a fresh model
     // name so these texts are not served from the cache and really hit the failing API.
-    await setSettings({ baseUrl: `${origin}/v1`, apiKey: 'test-key', model: 'mock-model-errors', targetLang: 'ko' });
+    await setSettings({ engine: 'openai', baseUrl: `${origin}/v1`, apiKey: 'test-key', model: 'mock-model-errors', targetLang: 'ko' });
     failWithStatus = 401;
     requests.length = 0;
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -218,7 +218,7 @@ try {
   });
 
   await step('auto-translate domain starts translating on load', async () => {
-    await setSettings({ baseUrl: `${origin}/v1`, apiKey: 'test-key', model: 'mock-model', targetLang: 'ko', autoDomains: ['127.0.0.1'] });
+    await setSettings({ engine: 'openai', baseUrl: `${origin}/v1`, apiKey: 'test-key', model: 'mock-model', targetLang: 'ko', autoDomains: ['127.0.0.1'] });
     const auto = await browser.newPage();
     await auto.goto(`${origin}/page.html`, { waitUntil: 'load' });
     await auto.waitForFunction(
@@ -239,7 +239,7 @@ try {
   });
 
   await step('options page: load, save and "test connection" against the mock server', async () => {
-    await setSettings({ baseUrl: `${origin}/v1`, apiKey: 'test-key', model: 'mock-model', targetLang: 'ko' });
+    await setSettings({ engine: 'openai', baseUrl: `${origin}/v1`, apiKey: 'test-key', model: 'mock-model', targetLang: 'ko' });
     const opts = await browser.newPage();
     await opts.goto(`chrome-extension://${extensionId}/options/options.html`);
     await opts.waitForFunction(() => document.getElementById('model').value === 'mock-model');
@@ -253,6 +253,35 @@ try {
     await opts.click('#test');
     await opts.waitForFunction(() => document.getElementById('status').classList.contains('ok'), { timeout: 10000 });
     assert.match(await opts.$eval('#status', (s) => s.textContent), /\[KO\] Hello, world!/);
+    await opts.close();
+  });
+
+  await step('options page: engine defaults to google; OpenAI-only fields show/hide and the key survives switching', async () => {
+    await worker.evaluate(() => chrome.storage.local.remove('settings')); // fresh profile
+    const opts = await browser.newPage();
+    await opts.goto(`chrome-extension://${extensionId}/options/options.html`);
+    await opts.waitForFunction(() => document.getElementById('engine').value !== '');
+    const hidden = () => opts.evaluate(() => [document.getElementById('openaiFields').hidden, document.getElementById('extraPromptField').hidden]);
+    const visible = (id) => opts.$eval(id, (el) => el.offsetParent !== null);
+
+    assert.equal(await opts.$eval('#engine', (s) => s.value), 'google');
+    assert.deepEqual(await hidden(), [true, true]);
+    assert.equal(await visible('#baseUrl'), false);
+    assert.ok((await opts.$eval('#engineHint', (e) => e.textContent)).length > 20);
+
+    // enter OpenAI details, then switch to microsoft: saving must work with the OpenAI fields hidden
+    await opts.select('#engine', 'openai');
+    assert.deepEqual(await hidden(), [false, false]);
+    assert.equal(await visible('#baseUrl'), true);
+    await opts.$eval('#apiKey', (e) => { e.value = 'sk-keep-me'; });
+    await opts.select('#engine', 'microsoft');
+    assert.deepEqual(await hidden(), [true, true]);
+    await opts.$eval('#baseUrl', (e) => { e.value = ''; }); // invalid + hidden: must not block saving
+    await opts.click('button[type=submit]');
+    await opts.waitForFunction(() => document.getElementById('status').classList.contains('ok'));
+    const saved = await worker.evaluate(async () => (await chrome.storage.local.get('settings')).settings);
+    assert.equal(saved.engine, 'microsoft');
+    assert.equal(saved.apiKey, 'sk-keep-me');
     await opts.close();
   });
 } finally {
