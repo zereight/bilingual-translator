@@ -2,7 +2,7 @@
 // Owns the API key: content scripts only ever send text and receive translations.
 
 import { loadSettings, publicSettings, sanitize, hostMatches, isConfigured } from './lib/settings.js';
-import { translate, isPerTextEngine } from './lib/engines.js';
+import { translate } from './lib/engines.js';
 
 const ext = globalThis.browser ?? globalThis.chrome;
 
@@ -71,20 +71,13 @@ async function translateTexts(texts) {
   });
 
   if (missing.length) {
-    // The OpenAI-compatible engine translates a whole batch per request. google / microsoft take one
-    // text per request, so each text becomes its own job and the concurrency limit applies to those.
-    const groups = isPerTextEngine(settings.engine) ? missing.map((i) => [i]) : [missing];
-    await Promise.all(
-      groups.map((group) =>
-        schedule(async () => {
-          const translated = await translate(group.map((i) => texts[i]), settings);
-          group.forEach((i, j) => {
-            results[i] = translated[j];
-            cacheSet(cacheKey(settings, texts[i]), translated[j]); // keep finished texts even if a sibling fails
-          });
-        }),
-      ),
-    );
+    // One job per message. The google / microsoft engines pack the texts into as few requests as
+    // they can and pace them (see lib/engines.js), so there is no per-text fan-out here.
+    const translated = await schedule(() => translate(missing.map((i) => texts[i]), settings));
+    missing.forEach((i, j) => {
+      results[i] = translated[j];
+      cacheSet(cacheKey(settings, texts[i]), translated[j]);
+    });
   }
   return results;
 }
@@ -95,7 +88,13 @@ const isValidTexts = (texts) =>
   texts.length <= MAX_BATCH_ITEMS &&
   texts.every((t) => typeof t === 'string' && t.length > 0 && t.length <= MAX_ITEM_CHARS);
 
-const errorMessage = (err) => String(err?.message ?? err);
+const errorMessage = (err) => {
+  if (err?.code === 'rate_limited') {
+    // localized, with the remedy (wait, or switch engine)
+    return ext.i18n.getMessage('errRateLimited', [err.service, String(err.retryInSeconds)]) || String(err.message);
+  }
+  return String(err?.message ?? err);
+};
 
 // ---- messages -----------------------------------------------------------------------------
 ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {

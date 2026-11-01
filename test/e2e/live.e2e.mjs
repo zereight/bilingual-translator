@@ -6,8 +6,9 @@
 //
 //   npm run build && npm run e2e:live
 //   CHROME_PATH=/path/to/chrome npm run e2e:live     (if Chrome is not auto-detected)
+//   LIVE_ENGINES=microsoft npm run e2e:live          (only some engines, e.g. while Google is rate limiting you)
 //
-// Only harmless sample sentences are sent.
+// Only harmless sample sentences are sent. Do not loop this: the services throttle by connection.
 
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -60,11 +61,13 @@ const server = http.createServer((req, res) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
+const only = process.env.LIVE_ENGINES?.split(',').map((e) => e.trim()).filter(Boolean);
 const CASES = [
   { engine: 'google', targetLang: 'ko', script: /[\uac00-\ud7a3]/ },
   { engine: 'microsoft', targetLang: 'ko', script: /[\uac00-\ud7a3]/ },
   { engine: 'microsoft', targetLang: 'zh-CN', script: /[\u4e00-\u9fff]/ }, // exercises the zh-CN -> zh-Hans mapping
-];
+].filter((c) => !only || only.includes(c.engine));
+assert.ok(CASES.length > 0, `LIVE_ENGINES=${process.env.LIVE_ENGINES} matches no engine (google, microsoft)`);
 
 const browser = await puppeteer.launch({ executablePath: chromePath, headless: true, pipe: true, enableExtensions: true });
 let failed = false;
