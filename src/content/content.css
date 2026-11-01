@@ -1,0 +1,75 @@
+/* Styles for the elements the extension inserts into pages. Everything is scoped to our own tags. */
+
+bt-translation {
+  display: block;
+  margin: 0.3em 0 0.5em;
+  padding: 0;
+  border: 0;
+  text-indent: 0;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: unset;
+  font: inherit;
+  color: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* Reserve no space until there is something to show, but stay observable. */
+bt-translation[data-bt-state="pending"],
+bt-translation[data-bt-state="queued"] {
+  height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+bt-translation[data-bt-state="same"] {
+  display: none;
+}
+
+bt-translation[data-bt-state="loading"] {
+  opacity: 0.5;
+}
+bt-translation[data-bt-state="loading"]::before {
+  content: "…";
+}
+
+bt-translation[data-bt-state="error"] {
+  cursor: pointer;
+  color: #c0392b;
+  font-size: 0.9em;
+}
+
+/* Styles chosen in the settings (html[data-bt-style]). */
+html[data-bt-style="subtle"] bt-translation[data-bt-state="done"] {
+  opacity: 0.78;
+}
+
+html[data-bt-style="highlight"] bt-translation[data-bt-state="done"] {
+  background: rgba(255, 200, 0, 0.2);
+  border-radius: 0.25em;
+  padding: 0.1em 0.35em;
+}
+
+html[data-bt-style="underline"] bt-translation[data-bt-state="done"] {
+  text-decoration: underline dashed;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25em;
+}
+
+bt-toast {
+  all: initial;
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  max-width: 360px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #1f2937;
+  color: #fff;
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+  overflow-wrap: anywhere;
+}

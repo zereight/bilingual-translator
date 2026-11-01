@@ -1,0 +1,22 @@
+{
+  "name": "bilingual-translator",
+  "version": "0.1.0",
+  "description": "Bilingual (original + translation) web page translator for Firefox and Chrome, powered by your own OpenAI-compatible API.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "icons": "node scripts/make-icons.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.js",
+    "lint:firefox": "npx --yes web-ext lint --source-dir dist/firefox",
+    "e2e": "node test/e2e/chrome.e2e.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "puppeteer-core": "^25.16.0"
+  }
+}

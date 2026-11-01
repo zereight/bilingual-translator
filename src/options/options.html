@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="optTitle"></title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <h1 data-i18n="optTitle"></h1>
+
+      <form id="form" autocomplete="off">
+        <fieldset>
+          <legend data-i18n="optSectionApi"></legend>
+
+          <label>
+            <span data-i18n="optBaseUrl"></span>
+            <input id="baseUrl" type="url" required spellcheck="false" />
+            <small data-i18n="optBaseUrlHint"></small>
+          </label>
+
+          <label>
+            <span data-i18n="optApiKey"></span>
+            <input id="apiKey" type="password" spellcheck="false" autocomplete="off" />
+            <small data-i18n="optApiKeyHint"></small>
+          </label>
+
+          <label>
+            <span data-i18n="optModel"></span>
+            <input id="model" type="text" required spellcheck="false" />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend data-i18n="optSectionTranslation"></legend>
+
+          <label>
+            <span data-i18n="optTarget"></span>
+            <select id="targetLang"></select>
+          </label>
+
+          <label>
+            <span data-i18n="optStyle"></span>
+            <select id="style">
+              <option value="subtle" data-i18n="styleSubtle"></option>
+              <option value="plain" data-i18n="stylePlain"></option>
+              <option value="highlight" data-i18n="styleHighlight"></option>
+              <option value="underline" data-i18n="styleUnderline"></option>
+            </select>
+          </label>
+
+          <label>
+            <span data-i18n="optExtraPrompt"></span>
+            <textarea id="extraPrompt" rows="3" maxlength="2000" data-i18n-placeholder="optExtraPromptPlaceholder"></textarea>
+          </label>
+
+          <label>
+            <span data-i18n="optAuto"></span>
+            <textarea id="autoDomains" rows="4" spellcheck="false" placeholder="example.com"></textarea>
+            <small data-i18n="optAutoHint"></small>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend data-i18n="optSectionAdvanced"></legend>
+          <div class="row">
+            <label>
+              <span data-i18n="optBatchItems"></span>
+              <input id="batchMaxItems" type="number" min="1" max="30" />
+            </label>
+            <label>
+              <span data-i18n="optBatchChars"></span>
+              <input id="batchMaxChars" type="number" min="200" max="8000" step="100" />
+            </label>
+            <label>
+              <span data-i18n="optConcurrency"></span>
+              <input id="concurrency" type="number" min="1" max="8" />
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="actions">
+          <button type="submit" class="primary" data-i18n="optSave"></button>
+          <button type="button" id="test" data-i18n="optTest"></button>
+          <span id="status" role="status"></span>
+        </div>
+      </form>
+
+      <p class="privacy" data-i18n="optPrivacy"></p>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
