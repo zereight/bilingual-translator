@@ -1,0 +1,93 @@
+name: Release
+
+# On every push to main: if the version in src/manifest.json has no GitHub release yet, run the
+# tests, build the Chrome and Firefox packages and publish them as release v<version>.
+# Pushes that do not change the version (docs, refactors, ...) skip everything after the first step.
+#
+# To ship a new version: bump "version" in src/manifest.json, package.json and package-lock.json
+# (npm version <x.y.z> --no-git-tag-version, then edit src/manifest.json), and merge to main.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # manual re-run from the Actions tab (e.g. after a failed run)
+
+permissions:
+  contents: write # create the tag and the release
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version and check for an existing release
+        id: version
+        run: |
+          version=$(node -p "require('./src/manifest.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "Release v$version already exists - nothing to do."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check that package.json and package-lock.json agree on the version
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          expected='${{ steps.version.outputs.version }}'
+          for file in package.json package-lock.json; do
+            actual=$(node -p "require('./$file').version")
+            if [ "$actual" != "$expected" ]; then
+              echo "::error file=$file::version is $actual but src/manifest.json says $expected"
+              exit 1
+            fi
+          done
+
+      - uses: actions/setup-node@v4
+        if: steps.version.outputs.publish == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.version.outputs.publish == 'true'
+        run: npm ci
+
+      - name: Unit tests
+        if: steps.version.outputs.publish == 'true'
+        run: npm test
+
+      - name: Build
+        if: steps.version.outputs.publish == 'true'
+        run: npm run build
+
+      - name: Check the built packages
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          version='${{ steps.version.outputs.version }}'
+          for browser in chrome firefox; do
+            zip="dist/bilingual-translator-$version-$browser.zip"
+            test -f "$zip" || { echo "::error::$zip was not built"; exit 1; }
+            packed=$(unzip -p "$zip" manifest.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+            [ "$packed" = "$version" ] || { echo "::error::$zip contains manifest version $packed"; exit 1; }
+          done
+          ls -l dist/*.zip
+
+      - name: Publish release
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          version='${{ steps.version.outputs.version }}'
+          gh release create "v$version" \
+            "dist/bilingual-translator-$version-chrome.zip" \
+            "dist/bilingual-translator-$version-firefox.zip" \
+            --target "$GITHUB_SHA" \
+            --title "v$version" \
+            --generate-notes

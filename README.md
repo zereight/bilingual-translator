@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/License-MIT-06b6d4?style=flat-square" alt="MIT License">
 </p>
 
-[기능](#기능) · [설치](#설치-빌드) · [사용법](#사용법) · [개인정보 / 보안](#개인정보--보안) · [개발](#개발) · [한계](#한계)
+[기능](#기능) · [설치](#설치) · [사용법](#사용법) · [개인정보 / 보안](#개인정보--보안) · [개발](#개발) · [한계](#한계)
 
 <br>
 
@@ -46,7 +46,17 @@
 | 🎨 | **번역문 스타일 4종** | 은은하게 / 기본 / 형광펜 / 점선 밑줄, 추가 지시사항(프롬프트)은 OpenAI 호환 엔진에서 지원 |
 | ⌨️ | **편의 기능** | 항상 번역할 사이트 목록, 단축키 `Alt+T`, UI 한국어/영어 |
 
-## 설치 (빌드)
+## 설치
+
+### 릴리즈에서 받기 (빌드 불필요)
+
+[Releases](https://github.com/zereight/bilingual-translator/releases/latest)에서 브라우저에 맞는 zip을 받습니다.
+`bilingual-translator-<버전>-chrome.zip` / `bilingual-translator-<버전>-firefox.zip`
+
+- **Chrome**: zip을 풀고 `chrome://extensions` → 개발자 모드 → "압축해제된 확장 프로그램을 로드합니다" → 풀린 폴더
+- **Firefox**: `about:debugging#/runtime/this-firefox` → "임시 부가 기능 로드" → 풀린 폴더의 `manifest.json` (재시작하면 사라집니다. 영구 설치는 아래 서명 방법 참고)
+
+### 직접 빌드
 
 > [!NOTE]
 > Node.js 20 이상이 필요합니다.
@@ -140,6 +150,13 @@ src/
 assets/              로고(SVG/PNG)와 README 미리보기 원본
 scripts/build.mjs    Chrome(MV3 service worker) / Firefox(MV3 event page) 매니페스트만 달리해 빌드
 ```
+
+## 릴리즈
+
+`main`에 푸시될 때마다 GitHub Actions(`.github/workflows/release.yml`)가 `src/manifest.json`의 버전을 확인하고, 그 버전의 릴리즈(`v<버전>`)가 아직 없으면 테스트 → 빌드 후 Chrome / Firefox zip을 Releases에 올립니다. 같은 버전이 이미 있으면 아무것도 하지 않습니다.
+
+새 버전을 내려면 `src/manifest.json`, `package.json`, `package-lock.json`의 버전을 같이 올려서 `main`에 머지하세요.
+(`npm version 0.1.2 --no-git-tag-version` 후 `src/manifest.json`도 수정)
 
 ## 검증 상태
 
