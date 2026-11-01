@@ -13,7 +13,20 @@ function setStatus(text, kind = '') {
   status.className = kind;
 }
 
+/** API address / key / model, extra prompt and batch sizes only apply to the OpenAI-compatible engine. */
+function syncEngine() {
+  const openai = $('engine').value === 'openai';
+  document.querySelectorAll('[data-openai-only]').forEach((el) => {
+    el.hidden = !openai;
+  });
+  $('baseUrl').required = openai; // a hidden required field would silently block saving
+  $('model').required = openai;
+  $('engineHint').textContent = t(openai ? 'engineHintOpenai' : 'engineHintFree');
+}
+
 function fill(settings) {
+  $('engine').value = settings.engine;
+  syncEngine();
   $('baseUrl').value = settings.baseUrl;
   $('apiKey').value = settings.apiKey;
   $('model').value = settings.model;
@@ -28,6 +41,7 @@ function fill(settings) {
 
 function read() {
   return {
+    engine: $('engine').value,
     baseUrl: $('baseUrl').value,
     apiKey: $('apiKey').value,
     model: $('model').value,
@@ -42,6 +56,7 @@ function read() {
 }
 
 function validate() {
+  if ($('engine').value !== 'openai') return true;
   if (!/^https?:\/\/[^\s/]+/i.test($('baseUrl').value.trim())) {
     setStatus(t('optInvalidUrl'), 'error');
     $('baseUrl').focus();
@@ -49,6 +64,8 @@ function validate() {
   }
   return true;
 }
+
+$('engine').addEventListener('change', syncEngine);
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();

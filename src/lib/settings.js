@@ -10,7 +10,11 @@ export const LANGUAGES = [
 
 export const STYLES = ['subtle', 'plain', 'highlight', 'underline'];
 
+/** google / microsoft: free web endpoints, no key. openai: any OpenAI-compatible API (own key or local). */
+export const ENGINES = ['google', 'microsoft', 'openai'];
+
 export const DEFAULTS = Object.freeze({
+  engine: 'google',
   baseUrl: 'https://api.openai.com/v1',
   apiKey: '',
   model: 'gpt-4o-mini',
@@ -51,9 +55,16 @@ export function sanitize(raw) {
     : String(r.autoDomains ?? '').split(/[\s,]+/);
   const autoDomains = [...new Set(domainList.map(normalizeDomain).filter(Boolean))];
 
+  const apiKey = str(r.apiKey, DEFAULTS.apiKey);
+
+  // Settings saved before engines existed had no `engine` and always meant the OpenAI-compatible API.
+  const legacyOpenAi = apiKey !== DEFAULTS.apiKey || baseUrl !== DEFAULTS.baseUrl;
+  const engine = ENGINES.includes(r.engine) ? r.engine : legacyOpenAi ? 'openai' : DEFAULTS.engine;
+
   return {
+    engine,
     baseUrl,
-    apiKey: str(r.apiKey, DEFAULTS.apiKey),
+    apiKey,
     model: str(r.model, DEFAULTS.model) || DEFAULTS.model,
     targetLang: LANGUAGES.includes(r.targetLang) ? r.targetLang : DEFAULTS.targetLang,
     style: STYLES.includes(r.style) ? r.style : DEFAULTS.style,
@@ -71,8 +82,12 @@ export function hostMatches(hostname, domains) {
   return domains.some((d) => host === d || host.endsWith(`.${d}`));
 }
 
-/** The official OpenAI endpoint is useless without a key; local servers (Ollama, LM Studio) need none. */
+/**
+ * google / microsoft work out of the box. For the OpenAI-compatible engine the official endpoint is
+ * useless without a key; local servers (Ollama, LM Studio) need none.
+ */
 export function isConfigured(settings) {
+  if (settings.engine && settings.engine !== 'openai') return true;
   if (settings.apiKey) return true;
   try {
     return new URL(settings.baseUrl).hostname !== 'api.openai.com';

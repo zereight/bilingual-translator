@@ -2,7 +2,7 @@
 // Owns the API key: content scripts only ever send text and receive translations.
 
 import { loadSettings, publicSettings, sanitize, hostMatches, isConfigured } from './lib/settings.js';
-import { requestTranslations } from './lib/llm.js';
+import { translate, isPerTextEngine } from './lib/engines.js';
 
 const ext = globalThis.browser ?? globalThis.chrome;
 
@@ -12,7 +12,11 @@ const MAX_ITEM_CHARS = 20000;
 // ---- cache (in memory; cleared when the worker is recycled) -------------------------------
 const CACHE_LIMIT = 4000;
 const cache = new Map();
-const cacheKey = (s, text) => `${s.model}\u0000${s.targetLang}\u0000${s.extraPrompt}\u0000${text}`;
+const cacheKey = (s, text) => {
+  // model and extra prompt only influence the OpenAI-compatible engine
+  const variant = s.engine === 'openai' ? `${s.model}\u0000${s.extraPrompt}` : '';
+  return `${s.engine}\u0000${variant}\u0000${s.targetLang}\u0000${text}`;
+};
 
 function cacheGet(key) {
   if (!cache.has(key)) return undefined;
@@ -67,13 +71,20 @@ async function translateTexts(texts) {
   });
 
   if (missing.length) {
-    const translated = await schedule(() =>
-      requestTranslations(missing.map((i) => texts[i]), settings),
+    // The OpenAI-compatible engine translates a whole batch per request. google / microsoft take one
+    // text per request, so each text becomes its own job and the concurrency limit applies to those.
+    const groups = isPerTextEngine(settings.engine) ? missing.map((i) => [i]) : [missing];
+    await Promise.all(
+      groups.map((group) =>
+        schedule(async () => {
+          const translated = await translate(group.map((i) => texts[i]), settings);
+          group.forEach((i, j) => {
+            results[i] = translated[j];
+            cacheSet(cacheKey(settings, texts[i]), translated[j]); // keep finished texts even if a sibling fails
+          });
+        }),
+      ),
     );
-    missing.forEach((i, j) => {
-      results[i] = translated[j];
-      cacheSet(cacheKey(settings, texts[i]), translated[j]);
-    });
   }
   return results;
 }
@@ -123,7 +134,7 @@ ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: false, error: 'Not allowed' });
         return false;
       }
-      requestTranslations(['Hello, world!'], sanitize(msg.settings), { retries: 0, timeoutMs: 20000 }).then(
+      translate(['Hello, world!'], sanitize(msg.settings), { retries: 0, timeoutMs: 20000 }).then(
         ([result]) => sendResponse({ ok: true, result }),
         (err) => sendResponse({ ok: false, error: errorMessage(err) }),
       );
