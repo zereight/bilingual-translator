@@ -1,18 +1,17 @@
 // Translation engines. `translate()` is the single entry point used by the background script.
 //
-//   google     Google Translate's free web endpoint (no key).      One text per request.
-//   microsoft  Microsoft Translator via the Bing Translator web UI (no key). One text per request.
-//   openai     Any OpenAI-compatible /chat/completions endpoint (own key / local server). Batched.
+//   google     Google Translate's free web endpoint (no key).
+//   microsoft  Microsoft Translator via the Bing Translator web UI (no key).
+//   openai     Any OpenAI-compatible /chat/completions endpoint (own key / local server).
 //
 // google and microsoft are the *unofficial* endpoints the public web UIs use. They need no account
-// but are undocumented, rate limited and may change or stop working at any time.
+// but are undocumented, rate limited and may change or stop working at any time. To stay under
+// their limits several paragraphs travel in one request (joined by newlines, checked on the way
+// back) and every request goes through a per-service gate (see "being polite" below).
 //
 // Pure ES module (fetch is injectable) so it can be unit-tested in Node.
 
 import { requestTranslations as translateWithLlm } from './llm.js';
-
-/** Engines that translate one text per request; the caller should fan texts out over its own limiter. */
-export const isPerTextEngine = (engine) => engine === 'google' || engine === 'microsoft';
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -64,13 +63,92 @@ async function translateLong(text, max, one) {
   return out;
 }
 
+// ---- being polite: pacing, shared cool-down, circuit breaker -----------------------------
+// Both services rate limit per connection. Sending one request per paragraph from several workers
+// at once gets the connection blocked (HTTP 429 with a captcha page), and hammering a blocked
+// connection does not help. Every request therefore passes a per-service gate that
+//   * spaces request starts at least MIN_GAP_MS apart,
+//   * makes everybody wait after a 429 (escalating, honours Retry-After),
+//   * and, once a request has given up on 429, refuses new ones for BREAKER_MS without sending anything.
+
+const SERVICE_LABEL = { google: 'Google Translate', microsoft: 'Microsoft Translator' };
+const MIN_GAP_MS = 250;
+const COOLDOWN_STEPS_MS = [2000, 5000, 15000]; // after the 1st, 2nd, 3rd+ rate limit in a row
+const MAX_RETRY_AFTER_MS = 30000;
+const BREAKER_MS = 60000;
+
+const gates = new Map(); // service -> { nextStart, cooldownUntil, breakerUntil, strikes }
+
+function gateFor(service) {
+  if (!gates.has(service)) gates.set(service, { nextStart: 0, cooldownUntil: 0, breakerUntil: 0, strikes: 0 });
+  return gates.get(service);
+}
+
+/** Thrown when a service answers 429 (or while the circuit breaker is open). `code` is stable for callers. */
+export class RateLimitError extends Error {
+  constructor(service, retryInSeconds) {
+    const label = SERVICE_LABEL[service] ?? service;
+    super(
+      `${label} is rate limiting this connection (HTTP 429). Wait about ${retryInSeconds} s, or switch the translation engine in the settings.`,
+    );
+    this.name = 'RateLimitError';
+    this.code = 'rate_limited';
+    this.service = label;
+    this.retryInSeconds = retryInSeconds;
+  }
+}
+
+async function waitForTurn(gate, service, sleep, now) {
+  for (;;) {
+    const t = now();
+    if (gate.breakerUntil > t) throw new RateLimitError(service, Math.ceil((gate.breakerUntil - t) / 1000));
+    const wait = Math.max(gate.nextStart, gate.cooldownUntil) - t;
+    if (wait <= 0) {
+      gate.nextStart = t + MIN_GAP_MS;
+      return;
+    }
+    await sleep(wait);
+  }
+}
+
+function noteRateLimited(gate, res, now) {
+  const t = now();
+  if (t < gate.cooldownUntil) return; // concurrent 429s inside one cool-down count once
+  gate.strikes += 1;
+  const step = COOLDOWN_STEPS_MS[Math.min(gate.strikes, COOLDOWN_STEPS_MS.length) - 1];
+  const header = Number(res.headers?.get?.('retry-after'));
+  const hinted = Number.isFinite(header) && header > 0 ? Math.min(header * 1000, MAX_RETRY_AFTER_MS) : 0;
+  gate.cooldownUntil = t + Math.max(step, hinted);
+}
+
+/** Forget the cached Bing token, the gates and the batching statistics (tests; also a clean slate). */
+export function resetEngineState() {
+  bingSession = null;
+  bingSessionLoading = null;
+  gates.clear();
+  batchMismatches.clear();
+}
+
 // ---- HTTP helper --------------------------------------------------------------------------
 
-/** fetch with timeout and retries (network errors, 429, 5xx). Resolves with an ok Response. */
+/**
+ * fetch with timeout and retries (network errors, 429, 5xx). Resolves with an ok Response.
+ * `opts.gate` names the service whose gate the request passes; `opts.now` / `opts.sleep` are injectable.
+ */
 async function request(url, init, opts = {}) {
-  const { fetchImpl = globalThis.fetch, retries = 2, timeoutMs = 30000, sleep = defaultSleep } = opts;
+  const {
+    fetchImpl = globalThis.fetch,
+    retries = 2,
+    timeoutMs = 30000,
+    sleep = defaultSleep,
+    now = Date.now,
+    gate: service,
+  } = opts;
+  const gate = service ? gateFor(service) : null;
 
   for (let attempt = 0; ; attempt++) {
+    if (gate) await waitForTurn(gate, service, sleep, now);
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res;
@@ -86,13 +164,23 @@ async function request(url, init, opts = {}) {
     }
     clearTimeout(timer);
 
-    if (res.ok) return res;
+    if (res.ok) {
+      if (gate) gate.strikes = 0;
+      return res;
+    }
+    if (res.status === 429 && gate) noteRateLimited(gate, res, now);
+
     if ((res.status === 429 || res.status >= 500) && attempt < retries) {
-      await sleep(1000 * 2 ** attempt);
+      // With a gate the next attempt waits out the cool-down by itself; otherwise plain backoff.
+      if (!(res.status === 429 && gate)) await sleep(1000 * 2 ** attempt);
       continue;
     }
-    const hint = res.status === 429 ? ' (too many requests: wait a moment, lower the concurrency, or switch engine)' : '';
-    throw new Error(`HTTP ${res.status}${hint}`);
+    if (res.status === 429) {
+      if (!gate) throw new Error('HTTP 429 (too many requests)');
+      gate.breakerUntil = now() + BREAKER_MS;
+      throw new RateLimitError(service, BREAKER_MS / 1000);
+    }
+    throw new Error(`HTTP ${res.status}`);
   }
 }
 
@@ -106,7 +194,7 @@ async function googlePiece(text, settings, opts) {
   const res = await request(
     GOOGLE_URL,
     { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() },
-    opts,
+    { ...opts, gate: 'google' },
   );
   let data;
   try {
@@ -133,12 +221,6 @@ export const bingLanguage = (code) => BING_LANG[code] ?? code;
 let bingSession = null; // { ig, key, token, expires }
 let bingSessionLoading = null;
 
-/** Forget the cached Bing token (used by tests and after the server rejects it). */
-export function resetBingSession() {
-  bingSession = null;
-  bingSessionLoading = null;
-}
-
 /** Pull the request signature (IG) and the abuse-prevention token out of the translator page. */
 export function parseBingPage(html) {
   const ig = html.match(/IG:"([A-Z0-9]+)"/)?.[1];
@@ -151,7 +233,7 @@ async function loadBingSession(opts, force) {
   if (!force && bingSession && bingSession.expires > Date.now()) return bingSession;
   if (!bingSessionLoading) {
     bingSessionLoading = (async () => {
-      const res = await request(BING_PAGE, { method: 'GET' }, opts);
+      const res = await request(BING_PAGE, { method: 'GET' }, { ...opts, gate: 'microsoft' });
       const parsed = parseBingPage(await res.text());
       if (!parsed) throw new Error('Could not start a Microsoft Translator session (the page layout may have changed)');
       bingSession = { ...parsed, expires: Date.now() + BING_SESSION_MAX_AGE_MS };
@@ -174,7 +256,7 @@ async function bingRequest(text, settings, opts, session) {
   const res = await request(
     `${BING_API}?isVertical=1&IG=${session.ig}&IID=translator.5028.1`,
     { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() },
-    opts,
+    { ...opts, gate: 'microsoft' },
   );
   let data;
   try {
@@ -207,6 +289,66 @@ async function bingPiece(text, settings, opts) {
   throw new Error(`Microsoft Translator rejected the request${code}`);
 }
 
+// ---- batching -----------------------------------------------------------------------------
+// Several paragraphs are sent in one request, joined by "\n" (paragraphs are whitespace-normalised
+// upstream, so they contain no newlines of their own). The reply is split on "\n" again and only
+// trusted when it has exactly as many non-empty lines; otherwise each paragraph is sent on its own.
+// If that keeps happening the engine stops batching until the worker restarts.
+
+const BATCH_MAX_ITEMS = 20;
+const MAX_BATCH_MISMATCHES = 3;
+const batchMismatches = new Map(); // engine -> consecutive batches whose line count did not match
+
+/**
+ * Group texts, in order, into requests of at most `maxChars` characters (joining newlines included)
+ * and `maxItems` texts. A text that alone exceeds `maxChars` gets a group of its own.
+ */
+export function packTexts(texts, maxChars, maxItems = BATCH_MAX_ITEMS) {
+  const groups = [];
+  let current = null;
+  texts.forEach((text, index) => {
+    if (text.length > maxChars) {
+      groups.push({ indexes: [index] });
+      current = null;
+    } else if (current && current.indexes.length < maxItems && current.size + 1 + text.length <= maxChars) {
+      current.indexes.push(index);
+      current.size += 1 + text.length;
+    } else {
+      current = { indexes: [index], size: text.length };
+      groups.push(current);
+    }
+  });
+  return groups;
+}
+
+const FREE_ENGINES = {
+  google: { piece: googlePiece, maxChars: GOOGLE_MAX_CHARS },
+  microsoft: { piece: bingPiece, maxChars: BING_MAX_CHARS },
+};
+
+async function translateFree(engine, texts, settings, opts) {
+  const { piece, maxChars } = FREE_ENGINES[engine];
+  const alone = (text) => translateLong(text, maxChars, (p) => piece(p, settings, opts));
+  const results = new Array(texts.length);
+
+  for (const { indexes } of packTexts(texts, maxChars)) {
+    if (indexes.length > 1 && (batchMismatches.get(engine) ?? 0) < MAX_BATCH_MISMATCHES) {
+      const lines = indexes.map((i) => texts[i].replace(/\s*\n\s*/g, ' '));
+      const parts = (await piece(lines.join('\n'), settings, opts)).split('\n');
+      if (parts.length === indexes.length && parts.every((part) => part.trim())) {
+        batchMismatches.set(engine, 0);
+        indexes.forEach((i, j) => {
+          results[i] = parts[j];
+        });
+        continue;
+      }
+      batchMismatches.set(engine, (batchMismatches.get(engine) ?? 0) + 1);
+    }
+    for (const i of indexes) results[i] = await alone(texts[i]);
+  }
+  return results;
+}
+
 // ---- dispatcher ---------------------------------------------------------------------------
 
 /**
@@ -214,16 +356,6 @@ async function bingPiece(text, settings, opts) {
  * `settings.engine` selects the backend.
  */
 export async function translate(texts, settings, opts = {}) {
-  switch (settings.engine) {
-    case 'google':
-    case 'microsoft': {
-      const [max, piece] =
-        settings.engine === 'google' ? [GOOGLE_MAX_CHARS, googlePiece] : [BING_MAX_CHARS, bingPiece];
-      const out = [];
-      for (const text of texts) out.push(await translateLong(text, max, (p) => piece(p, settings, opts)));
-      return out;
-    }
-    default:
-      return translateWithLlm(texts, settings, opts);
-  }
+  if (FREE_ENGINES[settings.engine]) return translateFree(settings.engine, texts, settings, opts);
+  return translateWithLlm(texts, settings, opts);
 }

@@ -13,6 +13,7 @@
   "errFailed": { "message": "⚠ Translation failed. Click to retry." },
   "errRetryHint": { "message": "Click to retry" },
   "errNoApiKey": { "message": "API key is not set. Open the extension settings." },
+  "errRateLimited": { "message": "$SERVICE$ is limiting requests from this connection (HTTP 429). Click a failed paragraph to retry in about $SECONDS$ s, or switch the translation engine in the settings.", "placeholders": { "service": { "content": "$1" }, "seconds": { "content": "$2" } } },
 
   "optTitle": { "message": "Bilingual Translator – Settings" },
   "optSectionEngine": { "message": "Translation engine" },

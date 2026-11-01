@@ -13,6 +13,7 @@
   "errFailed": { "message": "⚠ 번역 실패. 클릭하면 다시 시도합니다." },
   "errRetryHint": { "message": "클릭하여 다시 시도" },
   "errNoApiKey": { "message": "API 키가 설정되지 않았습니다. 확장 프로그램 설정을 열어 입력하세요." },
+  "errRateLimited": { "message": "$SERVICE$: 요청이 너무 많아 이 연결이 잠시 제한되었습니다(HTTP 429). 약 $SECONDS$초 뒤에 오류가 난 문단을 클릭해 다시 시도하거나, 설정에서 번역 엔진을 바꾸세요.", "placeholders": { "service": { "content": "$1" }, "seconds": { "content": "$2" } } },
 
   "optTitle": { "message": "이중 언어 번역기 – 설정" },
   "optSectionEngine": { "message": "번역 엔진" },
