@@ -1,6 +1,6 @@
 {
   "name": "bilingual-translator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Bilingual (original + translation) web page translator for Firefox and Chrome. Uses Google or Microsoft translation (no key needed) or your own OpenAI-compatible API.",
   "private": true,
   "type": "module",
